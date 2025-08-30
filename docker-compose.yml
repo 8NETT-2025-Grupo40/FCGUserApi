@@ -1,0 +1,23 @@
+version: '3.8'
+services:
+  user-db:
+    image: mcr.microsoft.com/mssql/server:2019-latest
+    environment:
+      SA_PASSWORD: "Your_strong(!)Password"
+      ACCEPT_EULA: "Y"
+    ports:
+      - "1433:1433"
+    volumes:
+      - userdbdata:/var/opt/mssql
+
+  user-api:
+    build: .
+    depends_on:
+      - user-db
+    environment:
+      - ConnectionStrings__DefaultConnection=Server=user-db,1433;Database=FCGUserDb;User Id=sa;Password=Your_strong(!)Password;
+    ports:
+      - "5001:80"
+
+volumes:
+userdbdata:
