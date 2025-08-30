@@ -18,7 +18,9 @@
   </ItemGroup>
 
   <ItemGroup>
-    <ProjectReference Include="..\FCGUser.Application\FCGUser.Application.csproj" />
+    <ProjectReference Include="..\..\..\Core\FCGUser.Application\FCGUser.Application.csproj" />
+    <ProjectReference Include="..\..\..\Core\FCGUser.Domain\FCGUser.Domain.csproj" />
+    <ProjectReference Include="..\..\Driven\FCGUser.Infra\FCGUser.Infra.csproj" />
   </ItemGroup>
 
 </Project>
