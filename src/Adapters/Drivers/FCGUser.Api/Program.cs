@@ -21,10 +21,11 @@ builder.Services.AddHealthChecks();
 var app = builder.Build();
 
 // 🔹 Middlewares
-if (app.Environment.IsDevelopment())
+if (app.Environment.IsDevelopment() || app.Environment.EnvironmentName == "Docker" || app.Environment.IsProduction())
 {
     app.UseSwaggerConfiguration();
 }
+
 
 app.UseHttpsRedirection();
 app.UseAuthentication();
