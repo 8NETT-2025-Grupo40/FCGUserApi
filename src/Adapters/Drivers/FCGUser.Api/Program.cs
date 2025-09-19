@@ -26,13 +26,10 @@ if (app.Environment.IsDevelopment() || app.Environment.EnvironmentName == "Docke
     app.UseSwaggerConfiguration();
 }
 
-
 app.UseHttpsRedirection();
 app.UseAuthentication();
 app.UseAuthorization();
 app.UseCustomExceptionHandler(app.Services.GetRequiredService<ILoggerFactory>());
-
-app.UseCustomHealthChecks("/health");
 
 // 🔹 Endpoints
 app.MapHealthCheckEndpoints();
