@@ -35,6 +35,7 @@ app.UseCustomExceptionHandler(app.Services.GetRequiredService<ILoggerFactory>())
 app.UseCustomHealthChecks("/health");
 
 // 🔹 Endpoints
+app.MapHealthCheckEndpoints();
 app.MapUserEndpoints();
 app.MapAuthEndpoints();
 
