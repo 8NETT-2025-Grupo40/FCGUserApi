@@ -17,5 +17,9 @@ RUN dotnet publish src/Adapters/Drivers/FCGUser.Api/FCGUser.Api.csproj -c Releas
 # Etapa 2: runtime
 FROM mcr.microsoft.com/dotnet/aspnet:8.0
 WORKDIR /app
+
+ENV ASPNETCORE_URLS=http://+:5067
+EXPOSE 5067
+
 COPY --from=build /app/publish ./
 ENTRYPOINT ["dotnet", "FCGUser.Api.dll"]

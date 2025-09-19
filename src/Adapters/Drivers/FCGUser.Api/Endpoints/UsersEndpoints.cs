@@ -1,5 +1,3 @@
-using Microsoft.AspNetCore.Builder;
-using Microsoft.AspNetCore.Http;
 using FCGUser.Application.UseCases;
 using FCGUser.Domain.Ports;
 
@@ -10,7 +8,7 @@ public static class UsersEndpoints
     // Extensão para mapear endpoints de User
     public static WebApplication MapUserEndpoints(this WebApplication app)
     {
-        var group = app.MapGroup("/api/v1/users").WithTags("Users");
+        var group = app.MapGroup("/users").WithTags("Users");
 
         // Registrar usuário
         group.MapPost("", async (RegisterUserRequest req, RegisterUserHandler handler) =>
@@ -19,7 +17,7 @@ public static class UsersEndpoints
             {
                 var cmd = new RegisterUserCommand(req.Email, req.Password, req.Name);
                 var id = await handler.Handle(cmd);
-                return Results.Created($"/api/v1/users/{id}", new { id });
+                return Results.Created($"/users/{id}", new { id });
             }
             catch (InvalidOperationException ex)
             {

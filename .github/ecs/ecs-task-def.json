@@ -1,0 +1,52 @@
+{
+    "family": "FCG-TSK-USER-ECS",
+    "containerDefinitions": [
+        {
+            "cpu": 0,
+            "environment": [],
+            "environmentFiles": [],
+            "essential": true,
+            "image": "478511033947.dkr.ecr.us-east-1.amazonaws.com/fcg-user-api@sha256:3c7ab49b4808558e475167bfe37a73b60249a1af88dacd01aa6044305284f16b",
+            "logConfiguration": {
+                "logDriver": "awslogs",
+                "options": {
+                    "awslogs-group": "/ecs/FCG-TSK-USER-ECS",
+                    "awslogs-create-group": "true",
+                    "awslogs-region": "us-east-1",
+                    "awslogs-stream-prefix": "ecs"
+                },
+                "secretOptions": []
+            },
+            "memory": 2048,
+            "mountPoints": [],
+            "name": "fcg-user-api",
+            "portMappings": [
+                {
+                    "appProtocol": "http",
+                    "containerPort": 5067,
+                    "hostPort": 5067,
+                    "name": "fcg-user-api-5067-tcp",
+                    "protocol": "tcp"
+                }
+            ],
+            "systemControls": [],
+            "ulimits": [],
+            "volumesFrom": []
+        }
+    ],
+    "taskRoleArn": "arn:aws:iam::478511033947:role/ecsTaskExecutionRole",
+    "executionRoleArn": "arn:aws:iam::478511033947:role/ecsTaskExecutionRole",
+    "networkMode": "awsvpc",
+    "volumes": [],
+    "placementConstraints": [],
+    "requiresCompatibilities": [
+        "FARGATE"
+    ],
+    "cpu": "1024",
+    "memory": "2048",
+    "runtimePlatform": {
+        "cpuArchitecture": "X86_64",
+        "operatingSystemFamily": "LINUX"
+    },
+    "enableFaultInjection": false
+}
