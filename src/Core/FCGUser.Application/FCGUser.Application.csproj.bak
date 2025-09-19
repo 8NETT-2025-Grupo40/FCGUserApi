@@ -1,7 +1,7 @@
 ﻿<Project Sdk="Microsoft.NET.Sdk">
 
   <ItemGroup>
-    <ProjectReference Include="..\FCGUser.Domain\FCGUser.Domain.csproj" />
+    <ProjectReference Include="..\Core\FCGUser.Domain\FCGUser.Domain.csproj" />
     <ProjectReference Include="..\..\Adapters\Driven\FCGUser.Infra\FCGUser.Infra.csproj" />
   </ItemGroup>
 

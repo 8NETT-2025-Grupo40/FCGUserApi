@@ -1,7 +1,7 @@
 using Microsoft.AspNetCore.Diagnostics.HealthChecks;
 using Microsoft.Extensions.Diagnostics.HealthChecks;
 
-namespace FCG.API.Endpoints
+namespace FCGUser.Api.Endpoints
 {
     public static class HealthCheckEndpoints
     {
