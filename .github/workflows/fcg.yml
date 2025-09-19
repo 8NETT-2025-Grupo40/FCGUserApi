@@ -126,8 +126,9 @@ jobs:
   deploy:
     name: Publish docker image on ECR and deploy to ECS
     needs: [build, tests, migration]
-    environment: production
-    if: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' }}
+    # TODO: Habilitar o ambiente quando estivermos prontos para deploy automático
+    # environment: production
+    # if: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' }}
     runs-on: ubuntu-latest
     outputs:
       image: ${{ steps.build-image.outputs.IMAGE }}
