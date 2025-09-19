@@ -26,11 +26,8 @@ if (app.Environment.IsDevelopment() || app.Environment.EnvironmentName == "Docke
     app.UseSwaggerConfiguration();
 }
 
-<<<<<<< HEAD
 
-=======
-app.MapHealthCheckEndpoints();
->>>>>>> 8c9c39a (feat: Health)
+app.UseCustomHealthChecks("/health");
 app.UseHttpsRedirection();
 app.UseAuthentication();
 app.UseAuthorization();
