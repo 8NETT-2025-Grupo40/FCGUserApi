@@ -79,11 +79,7 @@ jobs:
   migration:
     name: TEMP - Deploy DB (migrations)
     needs: [build, tests]
-    environment: production
-    if: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' }}
     runs-on: ubuntu-latest
-    env:
-      RDS_CONNECTION_STRING: ''
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
