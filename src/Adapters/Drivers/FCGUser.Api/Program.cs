@@ -15,8 +15,6 @@ builder.Services.AddJwtAuthentication(builder.Configuration);
 builder.Services.AddDbContextConfiguration(builder.Configuration);
 builder.Services.AddHealthChecks();
 
-
-
 // 🔹 Build app
 var app = builder.Build();
 
@@ -37,3 +35,6 @@ app.MapUserEndpoints();
 app.MapAuthEndpoints();
 
 app.Run();
+
+// Necessário para testes de integração
+public partial class Program { }
