@@ -4,9 +4,8 @@
         {
             "cpu": 0,
             "environment": [],
-            "environmentFiles": [],
             "essential": true,
-            "image": "478511033947.dkr.ecr.us-east-1.amazonaws.com/fcg-user-api@sha256:3c7ab49b4808558e475167bfe37a73b60249a1af88dacd01aa6044305284f16b",
+            "image": "478511033947.dkr.ecr.us-east-1.amazonaws.com/fcg-user-api:latest",
             "logConfiguration": {
                 "logDriver": "awslogs",
                 "options": {
@@ -30,7 +29,31 @@
                 }
             ],
             "systemControls": [],
-            "ulimits": [],
+            "volumesFrom": []
+        },
+        {
+            "command": [
+                "--config=/etc/ecs/ecs-xray.yaml"
+            ],
+            "cpu": 0,
+            "environment": [],
+            "essential": true,
+            "image": "public.ecr.aws/aws-observability/aws-otel-collector:v0.45.0",
+            "logConfiguration": {
+                "logDriver": "awslogs",
+                "options": {
+                    "awslogs-group": "/ecs/ecs-aws-otel-sidecar-collector",
+                    "mode": "non-blocking",
+                    "awslogs-create-group": "true",
+                    "max-buffer-size": "25m",
+                    "awslogs-region": "us-east-1",
+                    "awslogs-stream-prefix": "ecs"
+                }
+            },
+            "mountPoints": [],
+            "name": "aws-otel-collector",
+            "portMappings": [],
+            "systemControls": [],
             "volumesFrom": []
         }
     ],

@@ -1,6 +1,4 @@
-using Microsoft.Extensions.DependencyInjection;
 using Microsoft.EntityFrameworkCore;
-using Microsoft.Extensions.Configuration;
 using FCGUser.Domain.Ports;
 using FCGUser.Infra.Data;
 using FCGUser.Infra.Repositories;
