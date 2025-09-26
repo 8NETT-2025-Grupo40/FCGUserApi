@@ -28,17 +28,7 @@
     <ProjectReference Include="..\Adapters\Driven\FCGUser.Infra\FCGUser.Infra.csproj" />
   </ItemGroup>
 
-  <ItemGroup>
-    <!-- Referência à API se realmente precisar testar endpoints ou controllers -->
-    <ProjectReference Include="..\Adapters\Drivers\FCGUser.Api\FCGUser.Api.csproj" />
-  </ItemGroup>
 
-  <ItemGroup>
-    <None Include="$(SolutionDir)src\Adapters\Drivers\FCGUser.Api\bin\$(Configuration)\net8.0\FCGUser.Api.deps.json">
-      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
-      <Link>testhost.deps.json</Link>
-    </None>
-  </ItemGroup>
 
   <PropertyGroup>
     <ShadowCopyReferences>false</ShadowCopyReferences>
