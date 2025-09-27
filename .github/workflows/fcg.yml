@@ -141,8 +141,6 @@ jobs:
     # environment: production
     # if: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' }}
     runs-on: ubuntu-latest
-    outputs:
-      image: ${{ steps.build-image.outputs.IMAGE }}
     steps:
       - name: Check out repository code
         uses: actions/checkout@v4

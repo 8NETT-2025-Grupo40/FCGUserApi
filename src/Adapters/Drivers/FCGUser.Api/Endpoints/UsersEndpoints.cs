@@ -43,9 +43,9 @@ public static class UsersEndpoints
 
 
         // TODO: Apagar
-        group.MapGet("/{id:guid}", async (Guid id, IUserRepository repo) =>
+        group.MapGet("/{id:guid}", (Guid id, IUserRepository repo) =>
             {
-                return Results.Ok(id);
+                return Task.FromResult(Results.Ok(id));
             })
             .WithName("GetUserById2")
             .AllowAnonymous()
@@ -53,9 +53,9 @@ public static class UsersEndpoints
             .Produces(StatusCodes.Status404NotFound);
 
         // TODO: Apagar
-        group.MapGet("/teste/{id:guid}", async (Guid id, IUserRepository repo) =>
+        group.MapGet("/teste/{id:guid}", (Guid id, IUserRepository repo) =>
             {
-                return Results.Ok(id);
+                return Task.FromResult(Results.Ok(id));
             })
             .WithName("GetUserById1")
             .AllowAnonymous()
