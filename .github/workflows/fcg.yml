@@ -74,7 +74,6 @@ jobs:
           reporter: dotnet-trx
           fail-on-error: true
 
-  # TODO: Habilitar o ambiente quando estivermos prontos para deploy automático
   migration:
     name: Deploy DB (migrations)
     needs: [build, tests]
@@ -103,7 +102,7 @@ jobs:
         id: get-rds-secret
         run: |
           SECRET_JSON=$(aws secretsmanager get-secret-value \
-            --secret-id fcg-api-connection-string \
+            --secret-id fcg-api-user-connection-string \
             --query SecretString \
             --output text)
           echo "RDS_CONNECTION_STRING=$SECRET_JSON" >> $GITHUB_ENV
@@ -119,16 +118,17 @@ jobs:
         run: |
           dotnet ef database update \
             --configuration Release \
-            --project FCG.API/FCG.API.csproj \
+            --project src/Adapters/Drivers/FCGUser.Api/FCGUser.Api.csproj \
             --connection "$ConnectionStrings__DefaultConnection"
 
   deploy:
     name: Publish docker image on ECR and deploy to ECS
     needs: [build, tests, migration]
-    # TODO: Habilitar o ambiente quando estivermos prontos para deploy automático
-    # environment: production
-    # if: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' }}
+    environment: production
+    if: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' }}
     runs-on: ubuntu-latest
+    outputs:
+      image: ${{ steps.build-image.outputs.IMAGE }}
     steps:
       - name: Check out repository code
         uses: actions/checkout@v4
