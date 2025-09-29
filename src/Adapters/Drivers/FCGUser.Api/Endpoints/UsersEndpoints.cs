@@ -30,37 +30,16 @@ public static class UsersEndpoints
         .Produces(StatusCodes.Status400BadRequest);
 
         // Buscar usuário por id (exemplo de leitura simples via repository)
-        //group.MapGet("/{id:guid}", async (Guid id, IUserRepository repo) =>
-        //{
-        //    var user = await repo.GetByIdAsync(id);
-        //    if (user is null) return Results.NotFound();
-        //    return Results.Ok(new { user.Id, user.Email, user.Name, user.CreatedAt });
-        //})
-        //.WithName("GetUserById")
-        //.RequireAuthorization()
-        //.Produces(StatusCodes.Status200OK)
-        //.Produces(StatusCodes.Status404NotFound);
-
-
-        // TODO: Apagar
-        group.MapGet("/{id:guid}", (Guid id, IUserRepository repo) =>
-            {
-                return Task.FromResult(Results.Ok(id));
-            })
-            .WithName("GetUserById2")
-            .AllowAnonymous()
-            .Produces(StatusCodes.Status200OK)
-            .Produces(StatusCodes.Status404NotFound);
-
-        // TODO: Apagar
-        group.MapGet("/teste/{id:guid}", (Guid id, IUserRepository repo) =>
-            {
-                return Task.FromResult(Results.Ok(id));
-            })
-            .WithName("GetUserById1")
-            .AllowAnonymous()
-            .Produces(StatusCodes.Status200OK)
-            .Produces(StatusCodes.Status404NotFound);
+        group.MapGet("/{id:guid}", async (Guid id, IUserRepository repo) =>
+        {
+            var user = await repo.GetByIdAsync(id);
+            if (user is null) return Results.NotFound();
+            return Results.Ok(new { user.Id, user.Email, user.Name, user.CreatedAt });
+        })
+        .WithName("GetUserById")
+        .RequireAuthorization()
+        .Produces(StatusCodes.Status200OK)
+        .Produces(StatusCodes.Status404NotFound);
 
         return app;
     }
