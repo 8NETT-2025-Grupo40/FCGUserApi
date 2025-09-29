@@ -1,6 +1,10 @@
 using FCGUser.Api.Extensions;
 using FCGUser.Api.Endpoints;
-using Microsoft.AspNetCore.Authorization;
+using OpenTelemetry;
+using OpenTelemetry.Context.Propagation;
+using OpenTelemetry.Extensions.AWS.Trace;
+using OpenTelemetry.Resources;
+using OpenTelemetry.Trace;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -14,6 +18,7 @@ builder.Services.AddSwaggerConfiguration();
 builder.Services.AddJwtAuthentication(builder.Configuration);
 builder.Services.AddDbContextConfiguration(builder.Configuration);
 builder.Services.AddHealthChecks();
+builder.Services.SetupOpenTelemetry();
 
 // 🔹 Build app
 var app = builder.Build();
