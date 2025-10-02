@@ -28,6 +28,12 @@
                     "protocol": "tcp"
                 }
             ],
+            "secrets": [
+                {
+                    "name": "ConnectionStrings__DefaultConnection",
+                    "valueFrom": "arn:aws:secretsmanager:us-east-1:478511033947:secret:fcg-api-user-connection-string-2YVgMl"
+                }
+            ],
             "systemControls": [],
             "volumesFrom": []
         },
@@ -48,7 +54,8 @@
                     "max-buffer-size": "25m",
                     "awslogs-region": "us-east-1",
                     "awslogs-stream-prefix": "ecs"
-                }
+                },
+                "secretOptions": []
             },
             "mountPoints": [],
             "name": "aws-otel-collector",

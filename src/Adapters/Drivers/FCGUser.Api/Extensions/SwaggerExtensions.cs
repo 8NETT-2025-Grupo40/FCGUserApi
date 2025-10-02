@@ -10,21 +10,16 @@ namespace FCGUser.Api.Extensions
             services.AddEndpointsApiExplorer();
             services.AddSwaggerGen(c =>
             {
-                c.SwaggerDoc("v1", new OpenApiInfo
-                {
-                    Title = "FCGUser API",
-                    Version = "v1",
-                    Description = "Microserviço de usuários do FCG"
-                });
+                c.SwaggerDoc("v1", new OpenApiInfo { Title = "FCG API", Version = "v1" });
 
-                // 🔹 Configuração de segurança JWT
                 c.AddSecurityDefinition("Bearer", new OpenApiSecurityScheme
                 {
-                    In = ParameterLocation.Header,
-                    Description = "Insira o token JWT no campo abaixo (sem 'Bearer ')",
+                    Description = "Enter the JWT token in the field below. Example: Bearer {your token}",
                     Name = "Authorization",
-                    Type = SecuritySchemeType.ApiKey,
-                    Scheme = "Bearer"
+                    In = ParameterLocation.Header,
+                    Type = SecuritySchemeType.Http,
+                    Scheme = "bearer",
+                    BearerFormat = "JWT"
                 });
 
                 c.AddSecurityRequirement(new OpenApiSecurityRequirement
@@ -38,7 +33,7 @@ namespace FCGUser.Api.Extensions
                                 Id = "Bearer"
                             }
                         },
-                        new string[] {}
+                        Array.Empty<string>()
                     }
                 });
             });
