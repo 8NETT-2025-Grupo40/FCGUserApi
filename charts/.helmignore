@@ -1,0 +1,5 @@
+# comuns
+.git/
+.gitignore
+*.md
+*.tgz
