@@ -1,0 +1,58 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "fcg-user-api.fullname" . }}
+  labels: {{- include "fcg-user-api.labels" . | nindent 4 }}
+spec:
+  replicas: {{ .Values.replicaCount }}
+  selector:
+    matchLabels: {{- include "fcg-user-api.selectorLabels" . | nindent 6 }}
+  template:
+    metadata:
+      labels: {{- include "fcg-user-api.selectorLabels" . | nindent 8 }}
+    spec:
+      serviceAccountName: {{ include "fcg-user-api.serviceAccountName" . }}
+      containers:
+        - name: api
+          image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          ports:
+            - containerPort: {{ .Values.containerPort }}
+          env:
+            - name: ASPNETCORE_URLS
+              value: {{ .Values.env.ASPNETCORE_URLS | quote }}
+            - name: OTEL_EXPORTER_OTLP_ENDPOINT
+              value: {{ .Values.env.OTEL_EXPORTER_OTLP_ENDPOINT | quote }}
+            - name: ConnectionStrings__Default
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "fcg-user-api.fullname" . }}-secrets
+                  key: connectionString
+            - name: Jwt__Issuer
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "fcg-user-api.fullname" . }}-secrets
+                  key: jwt-issuer
+            - name: Jwt__Audience
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "fcg-user-api.fullname" . }}-secrets
+                  key: jwt-audience
+            - name: Jwt__Key
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "fcg-user-api.fullname" . }}-secrets
+                  key: jwt-key
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: {{ .Values.containerPort }}
+            initialDelaySeconds: 10
+            periodSeconds: 10
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: {{ .Values.containerPort }}
+            initialDelaySeconds: 30
+            periodSeconds: 20
+          resources: {{- toYaml .Values.resources | nindent 12 }}

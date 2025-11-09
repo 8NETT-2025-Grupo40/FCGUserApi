@@ -1,0 +1,64 @@
+image:
+  # ajuste: <aws_account_id>.dkr.ecr.<region>.amazonaws.com/fcg-user-api
+  repository: "951042686167.dkr.ecr.us-east-1.amazonaws.com/teste"
+  tag: "latest"
+  pullPolicy: IfNotPresent
+
+replicaCount: 2
+
+# porta do container ASP.NET
+containerPort: 5067
+
+service:
+  type: ClusterIP
+  port: 80
+
+ingress:
+  enabled: true
+  className: alb
+  host: ""              # opcional (deixe vazio se não usar domínio)
+  path: /
+  annotations:
+    alb.ingress.kubernetes.io/scheme: internet-facing
+    alb.ingress.kubernetes.io/target-type: ip
+    alb.ingress.kubernetes.io/group.name: fcg
+    alb.ingress.kubernetes.io/healthcheck-path: /health
+    alb.ingress.kubernetes.io/listen-ports: '[{"HTTP":80}]'
+    alb.ingress.kubernetes.io/actions.ssl-redirect: '{"Type": "redirect", "RedirectConfig": { "Protocol": "HTTP", "Port": "80", "StatusCode": "HTTP_301"}}'
+    # Para HTTPS (opcional):
+    # alb.ingress.kubernetes.io/certificate-arn: arn:aws:acm:REGION:ACCOUNT:certificate/XXXXX
+    # alb.ingress.kubernetes.io/ssl-redirect: '443'
+
+resources:
+  requests:
+    cpu: 100m
+    memory: 128Mi
+  limits:
+    cpu: 500m
+    memory: 512Mi
+
+# env não sensíveis
+env:
+  ASPNETCORE_URLS: "http://+:5067"
+  OTEL_EXPORTER_OTLP_ENDPOINT: "http://otel-collector:4317"
+  # Exemplo: LOG_LEVEL: "Information"
+
+# segredos (coloque valores em values-prod.yaml)
+secrets:
+  connectionString: ""  # ConnectionStrings__Default
+  jwt:
+    issuer: ""
+    audience: ""
+    key: ""
+
+autoscaling:
+  enabled: true
+  minReplicas: 2
+  maxReplicas: 5
+  cpu: 60
+  memory: 70
+
+serviceAccount:
+  create: true
+  name: ""       # deixe vazio para nome automático
+  annotations: {}  # ex.: para IRSA: eks.amazonaws.com/role-arn: arn:aws:iam::123:role/role-irsa
