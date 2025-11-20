@@ -172,6 +172,14 @@ jobs:
           curl https://raw.githubusercontent.com/helm/helm/main/scripts/get-helm-3 | bash
           helm version
       
+      - name: Debug - Check chart structure
+        run: |
+          echo "Listing k8s/ directory:"
+          ls -la k8s/
+          echo ""
+          echo "Templates directory:"
+          ls -la k8s/templates/ || echo "templates/ not found"
+      
       - name: Deploy to EKS with Helm
         env:
           IMAGE_TAG: ${{ github.sha }}
@@ -183,9 +191,15 @@ jobs:
             --create-namespace \
             --set image.tag=$IMAGE_TAG \
             --wait \
-            --timeout 5m
+            --timeout 5m \
+            --debug
           
           echo "Helm deployment completed"
+      
+      - name: Debug - List all resources created
+        run: |
+          echo "All resources in namespace:"
+          kubectl get all -n ${{ env.K8S_NAMESPACE }}
       
       - name: Verify Deployment
         run: |
