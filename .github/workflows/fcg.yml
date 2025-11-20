@@ -2,17 +2,18 @@ name: Fiap Cloud Games CI - User API
 
 on:
   push:
-    branches: [ 'main' ]
+    branches: [ 'main']
   pull_request:
     types: [opened, synchronize]
 
 env:
   AWS_REGION: us-east-1
+  # TODO: colocar nos Secrets do GitHub Actions
+  AWS_ACCOUNT_ID: 478511033947
   ECR_REPOSITORY: fcg-user-api
-  ECS_SERVICE: FCG-TSK-USER-ECS-service-tr9krf21
-  ECS_CLUSTER: FCG-Cluster
-  ECS_TASK_DEFINITION: .github/ecs/ecs-task-def.json
-  CONTAINER_NAME: fcg-user-api
+  EKS_CLUSTER: fcg
+  K8S_NAMESPACE: fcg
+  HELM_RELEASE_NAME: fcg-user-api
 
 jobs:
   build:
@@ -74,100 +75,202 @@ jobs:
           reporter: dotnet-trx
           fail-on-error: true
 
+  build-push:
+    name: Build and Push Docker Image
+    needs: [build, tests]
+    # TODO: if: github.event_name == 'push'
+    runs-on: ubuntu-latest
+    outputs:
+      image-tag: ${{ steps.meta.outputs.tags }}
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+      
+      - name: Configure AWS Credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ env.AWS_REGION }}
+      
+      - name: Login to Amazon ECR
+        id: login-ecr
+        uses: aws-actions/amazon-ecr-login@v2
+      
+      - name: Generate Docker metadata
+        id: meta
+        env:
+          ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
+        run: |
+          IMAGE_TAG="${{ github.sha }}"
+          echo "tags=$ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG" >> $GITHUB_OUTPUT
+          echo "latest=$ECR_REGISTRY/$ECR_REPOSITORY:latest" >> $GITHUB_OUTPUT
+      
+      - name: Build and Push Docker Image
+        env:
+          IMAGE_TAG: ${{ steps.meta.outputs.tags }}
+          IMAGE_LATEST: ${{ steps.meta.outputs.latest }}
+        run: |
+          echo "Building Docker image..."
+          docker build -t $IMAGE_TAG -t $IMAGE_LATEST .
+          
+          echo "Pushing to ECR..."
+          docker push $IMAGE_TAG
+          docker push $IMAGE_LATEST
+          
+          echo "Image pushed successfully"
+          echo "Tag: $IMAGE_TAG"
+          echo "Latest: $IMAGE_LATEST"
+
+  deploy-eks:
+    name: Deploy to EKS
+    needs: [build-push]
+    # TODO: if: github.event_name == 'push'
+    runs-on: ubuntu-latest
+    environment: production
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+      
+      - name: Configure AWS Credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ env.AWS_REGION }}
+      
+      - name: Update kubeconfig
+        run: |
+          aws eks update-kubeconfig --region ${{ env.AWS_REGION }} --name ${{ env.EKS_CLUSTER }}
+          kubectl cluster-info
+      
+      - name: Install eksctl
+        run: |
+          curl -sLO "https://github.com/eksctl-io/eksctl/releases/latest/download/eksctl_Linux_amd64.tar.gz"
+          tar -xzf eksctl_Linux_amd64.tar.gz -C /tmp
+          sudo mv /tmp/eksctl /usr/local/bin
+          eksctl version
+      
+      - name: Create/Update IRSA for External Secrets
+        run: |
+          echo "Creating/updating IRSA for fcg-user-api-sa..."
+          eksctl create iamserviceaccount \
+            --cluster=${{ env.EKS_CLUSTER }} \
+            --namespace=${{ env.K8S_NAMESPACE }} \
+            --name=fcg-user-api-sa \
+            --attach-policy-arn=arn:aws:iam::${{ env.AWS_ACCOUNT_ID }}:policy/FCGExternalSecretsPolicy \
+            --approve \
+            --override-existing-serviceaccounts \
+            --region=${{ env.AWS_REGION }}
+          
+          echo "IRSA configured successfully"
+      
+      - name: Install Helm
+        run: |
+          curl https://raw.githubusercontent.com/helm/helm/main/scripts/get-helm-3 | bash
+          helm version
+      
+      - name: Deploy to EKS with Helm
+        env:
+          IMAGE_TAG: ${{ github.sha }}
+        run: |
+          echo "Deploying FCG User API to EKS..."
+          
+          helm upgrade --install ${{ env.HELM_RELEASE_NAME }} ./k8s \
+            --namespace ${{ env.K8S_NAMESPACE }} \
+            --create-namespace \
+            --set image.tag=$IMAGE_TAG \
+            --wait \
+            --timeout 5m
+          
+          echo "Helm deployment completed"
+      
+      - name: Verify Deployment
+        run: |
+          echo "Verifying deployment..."
+          
+          kubectl rollout status deployment/${{ env.HELM_RELEASE_NAME }} -n ${{ env.K8S_NAMESPACE }} --timeout=5m
+          
+          echo ""
+          echo "Pods:"
+          kubectl get pods -n ${{ env.K8S_NAMESPACE }} -l app.kubernetes.io/name=fcg-user-api
+          
+          echo ""
+          echo "External Secrets:"
+          kubectl get externalsecret -n ${{ env.K8S_NAMESPACE }}
+          
+          echo ""
+          echo "Ingress:"
+          kubectl get ingress -n ${{ env.K8S_NAMESPACE }}
+      
+      - name: Get ALB URL
+        run: |
+          echo "Waiting for ALB to be provisioned..."
+          sleep 30
+          
+          ALB_URL=$(kubectl get ingress -n ${{ env.K8S_NAMESPACE }} ${{ env.HELM_RELEASE_NAME }}-fcg-user-api -o jsonpath='{.status.loadBalancer.ingress[0].hostname}' 2>/dev/null || echo "")
+          
+          if [ -z "$ALB_URL" ]; then
+            echo "WARNING: ALB still being provisioned. Check status with:"
+            echo "  kubectl get ingress -n ${{ env.K8S_NAMESPACE }} -w"
+          else
+            echo ""
+            echo "=========================================="
+            echo "DEPLOYMENT SUCCESSFUL"
+            echo "=========================================="
+            echo "ALB URL: http://$ALB_URL"
+            echo "Health Check: http://$ALB_URL/health"
+            echo "API Docs: http://$ALB_URL/docs"
+            echo "=========================================="
+          fi
+
+  # TODO: Descomentar quando for necessário rodar as migrations automaticamente
+  # Então adicionar migration como dependência: deploy-eks needs: [build-push, migration]
   migration:
     name: Deploy DB (migrations)
     needs: [build, tests]
     environment: production
-    # if: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' }}
+    if: false  # Desabilitado temporariamente
     runs-on: 
       - self-hosted
       - linux
       - X64
     env:
-      # Declaramos aqui a variável vazia para o linter/intellisense do GitHub Actions
-      # entender que ela existe. O valor real é atribuído em tempo de execução
-      # pelo passo “Get RDS connection string” via $GITHUB_ENV.
       RDS_CONNECTION_STRING: ''
   
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
-  # TODO: Descomentar quando for necessário rodar as migrations automaticamente
-  #     - name: Configure AWS credentials
-  #       uses: aws-actions/configure-aws-credentials@v2
-  #       with:
-  #         aws-region: ${{ env.AWS_REGION }}
-  #         aws-access-key-id:     ${{ secrets.AWS_ACCESS_KEY_ID }}
-  #         aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+      
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-region: ${{ env.AWS_REGION }}
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
 
-  #     - name: Get RDS connection string from Secrets Manager
-  #       id: get-rds-secret
-  #       run: |
-  #         SECRET_JSON=$(aws secretsmanager get-secret-value \
-  #           --secret-id fcg-api-user-connection-string \
-  #           --query SecretString \
-  #           --output text)
-  #         echo "RDS_CONNECTION_STRING=$SECRET_JSON" >> $GITHUB_ENV
-  #       env:
-  #         AWS_REGION: ${{ env.AWS_REGION }}
+
+      - name: Get RDS connection string from Secrets Manager
+        id: get-rds-secret
+        run: |
+          SECRET_JSON=$(aws secretsmanager get-secret-value \
+            --secret-id fcg-api-user-connection-string \
+            --query SecretString \
+            --output text)
+          echo "RDS_CONNECTION_STRING=$SECRET_JSON" >> $GITHUB_ENV
+        env:
+          AWS_REGION: ${{ env.AWS_REGION }}
           
-  #     - name: Add global tools to PATH
-  #       run: echo "$HOME/.dotnet/tools" >> $GITHUB_PATH
+      - name: Add global tools to PATH
+        run: echo "$HOME/.dotnet/tools" >> $GITHUB_PATH
 
-  #     - name: Apply migrations
-  #       env:
-  #         ConnectionStrings__DefaultConnection: ${{ env.RDS_CONNECTION_STRING }}
-  #       run: |
-  #         dotnet ef database update \
-  #           --configuration Release \
-  #           --project src/Adapters/Drivers/FCGUser.Api/FCGUser.Api.csproj \
-  #           --connection "$ConnectionStrings__DefaultConnection"
-
-  # deploy:
-  #   name: Publish docker image on ECR and deploy to ECS
-  #   needs: [build, tests, migration]
-  #   environment: production
-  #   # if: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' }}
-  #   runs-on: ubuntu-latest
-  #   outputs:
-  #     image: ${{ steps.build-image.outputs.IMAGE }}
-  #   steps:
-  #     - name: Check out repository code
-  #       uses: actions/checkout@v4
-
-  #     - name: Configure AWS credentials
-  #       uses: aws-actions/configure-aws-credentials@0e613a0980cbf65ed5b322eb7a1e075d28913a83
-  #       with: 
-  #         aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
-  #         aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
-  #         aws-region: ${{ env.AWS_REGION }}
-
-  #     - name: Login to Amazon ECR
-  #       id: login-ecr
-  #       uses: aws-actions/amazon-ecr-login@62f4f872db3836360b72999f4b87f1ff13310f3a
-
-  #     - name: Build, tag and push image to Amazon ECR
-  #       id: build-image
-  #       env:
-  #         ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
-  #         IMAGE_TAG: latest
-  #       run: |
-  #         docker build -t $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG .
-  #         docker push $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG
-  #         echo "image=$ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG" >> $GITHUB_OUTPUT
-
-  #     - name: Fill the image ID in the ECS task definition
-  #       id: task-def
-  #       uses: aws-actions/amazon-ecs-render-task-definition@c804dfbdd57f713b6c079302a4c01db7017a36fc
-  #       with:
-  #         task-definition: ${{ env.ECS_TASK_DEFINITION }}
-  #         container-name: ${{ env.CONTAINER_NAME }}
-  #         image: ${{ steps.build-image.outputs.image }}
-
-  #     - name: Deploy ECS Task Definition
-  #       uses: aws-actions/amazon-ecs-deploy-task-definition@df9643053eda01f169e64a0e60233aacca83799a
-  #       with:
-  #         task-definition: ${{ steps.task-def.outputs.task-definition }}
-  #         service: ${{ env.ECS_SERVICE }}
-  #         cluster: ${{ env.ECS_CLUSTER }}
-  #         wait-for-service-stability: true
+      - name: Apply migrations
+        env:
+          ConnectionStrings__DefaultConnection: ${{ env.RDS_CONNECTION_STRING }}
+        run: |
+          dotnet ef database update \
+            --configuration Release \
+            --project src/Adapters/Drivers/FCGUser.Api/FCGUser.Api.csproj \
+            --connection "$ConnectionStrings__DefaultConnection"

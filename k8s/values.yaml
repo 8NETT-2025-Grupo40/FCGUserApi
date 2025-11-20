@@ -59,6 +59,6 @@ autoscaling:
   memory: 70
 
 serviceAccount:
-  create: false  # eksctl cria via IRSA
-  name: "fcg-user-api-fcg-user-api"  # nome criado pelo eksctl
-  annotations: {}  # eksctl injeta automaticamente
+  create: false  # eksctl cria via IRSA no workflow de deploy
+  name: "fcg-user-api-sa"  # nome criado pelo workflow do GitHub Actions
+  annotations: {}  # eksctl injeta automaticamente o ARN da role
