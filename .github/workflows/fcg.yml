@@ -155,22 +155,25 @@ jobs:
       
       - name: Create/Update IRSA for External Secrets
         run: |
-          echo "Creating/updating IRSA for fcg-user-api-sa..."
-          eksctl create iamserviceaccount \
-            --cluster=${{ env.EKS_CLUSTER }} \
-            --namespace=${{ env.K8S_NAMESPACE }} \
-            --name=fcg-user-api-sa \
-            --attach-policy-arn=arn:aws:iam::${{ env.AWS_ACCOUNT_ID }}:policy/FCGExternalSecretsPolicy \
-            --approve \
-            --override-existing-serviceaccounts \
-            --region=${{ env.AWS_REGION }}
-          
-          echo "IRSA configured successfully"
-          
-          echo "Waiting for ServiceAccount to be ready..."
-          kubectl wait --for=condition=ready serviceaccount/fcg-user-api-sa \
-            -n ${{ env.K8S_NAMESPACE }} \
-            --timeout=120s || echo "ServiceAccount wait timed out, continuing..."
+          echo "Checking if IRSA already exists..."
+          if kubectl get serviceaccount fcg-user-api-sa -n ${{ env.K8S_NAMESPACE }} &>/dev/null; then
+            echo "ServiceAccount already exists, skipping IRSA creation"
+            IRSA_EXISTS=true
+          else
+            echo "Creating IRSA for fcg-user-api-sa..."
+            eksctl create iamserviceaccount \
+              --cluster=${{ env.EKS_CLUSTER }} \
+              --namespace=${{ env.K8S_NAMESPACE }} \
+              --name=fcg-user-api-sa \
+              --attach-policy-arn=arn:aws:iam::${{ env.AWS_ACCOUNT_ID }}:policy/FCGExternalSecretsPolicy \
+              --approve \
+              --region=${{ env.AWS_REGION }}
+            
+            echo "IRSA created successfully"
+            echo "Waiting 30s for IAM propagation..."
+            sleep 30
+            IRSA_EXISTS=false
+          fi
       
       - name: Install Helm
         run: |
@@ -185,6 +188,27 @@ jobs:
           echo "Templates directory:"
           ls -la k8s/templates/ || echo "templates/ not found"
       
+      - name: Wait for SecretStore to be ready
+        run: |
+          echo "Waiting for SecretStore to become valid..."
+          
+          # Wait up to 5 minutes for SecretStore to be ready
+          for i in {1..30}; do
+            STATUS=$(kubectl get secretstore ${{ env.HELM_RELEASE_NAME }}-fcg-user-api-secretstore \
+              -n ${{ env.K8S_NAMESPACE }} \
+              -o jsonpath='{.status.conditions[?(@.type=="Ready")].status}' 2>/dev/null || echo "NotFound")
+            
+            if [ "$STATUS" = "True" ]; then
+              echo "SecretStore is ready!"
+              break
+            fi
+            
+            echo "SecretStore status: $STATUS (attempt $i/30)"
+            sleep 10
+          done
+          
+          kubectl get secretstore -n ${{ env.K8S_NAMESPACE }}
+      
       - name: Deploy to EKS with Helm
         env:
           IMAGE_TAG: ${{ github.sha }}
@@ -195,16 +219,10 @@ jobs:
             --namespace ${{ env.K8S_NAMESPACE }} \
             --create-namespace \
             --set image.tag=$IMAGE_TAG \
-            --timeout 15m \
+            --timeout 10m \
             --debug
           
-          echo "Helm deployment completed (install triggered, verification will happen in next step)"
-          
-          echo ""
-          echo "Waiting for External Secrets to sync..."
-          kubectl wait --for=condition=Ready externalsecret/${{ env.HELM_RELEASE_NAME }}-fcg-user-api-externalsecret \
-            -n ${{ env.K8S_NAMESPACE }} \
-            --timeout=300s || echo "External Secret sync still pending, pods may restart..."
+          echo "Helm deployment completed"
       
       - name: Debug - List all resources created
         run: |
@@ -231,6 +249,17 @@ jobs:
           echo "Pod events:"
           kubectl get events -n ${{ env.K8S_NAMESPACE }} --sort-by='.lastTimestamp' | tail -20 || true
       
+      - name: Wait for External Secrets sync
+        run: |
+          echo "Waiting for External Secrets to sync..."
+          
+          kubectl wait --for=condition=Ready \
+            externalsecret/${{ env.HELM_RELEASE_NAME }}-fcg-user-api-externalsecret \
+            -n ${{ env.K8S_NAMESPACE }} \
+            --timeout=120s
+          
+          echo "External Secrets synced successfully"
+      
       - name: Verify Deployment
         run: |
           echo "Verifying deployment rollout..."
@@ -239,8 +268,7 @@ jobs:
           # user-api (release) + fcg-user-api (chart) = user-api-fcg-user-api
           DEPLOYMENT_NAME="${{ env.HELM_RELEASE_NAME }}-fcg-user-api"
           
-          # Increased timeout to account for External Secrets sync time
-          kubectl rollout status deployment/$DEPLOYMENT_NAME -n ${{ env.K8S_NAMESPACE }} --timeout=15m
+          kubectl rollout status deployment/$DEPLOYMENT_NAME -n ${{ env.K8S_NAMESPACE }} --timeout=5m
           
           echo ""
           echo "Pods:"
