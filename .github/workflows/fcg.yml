@@ -166,6 +166,11 @@ jobs:
             --region=${{ env.AWS_REGION }}
           
           echo "IRSA configured successfully"
+          
+          echo "Waiting for ServiceAccount to be ready..."
+          kubectl wait --for=condition=ready serviceaccount/fcg-user-api-sa \
+            -n ${{ env.K8S_NAMESPACE }} \
+            --timeout=120s || echo "ServiceAccount wait timed out, continuing..."
       
       - name: Install Helm
         run: |
@@ -190,10 +195,16 @@ jobs:
             --namespace ${{ env.K8S_NAMESPACE }} \
             --create-namespace \
             --set image.tag=$IMAGE_TAG \
-            --timeout 10m \
+            --timeout 15m \
             --debug
           
           echo "Helm deployment completed (install triggered, verification will happen in next step)"
+          
+          echo ""
+          echo "Waiting for External Secrets to sync..."
+          kubectl wait --for=condition=Ready externalsecret/${{ env.HELM_RELEASE_NAME }}-fcg-user-api-externalsecret \
+            -n ${{ env.K8S_NAMESPACE }} \
+            --timeout=300s || echo "External Secret sync still pending, pods may restart..."
       
       - name: Debug - List all resources created
         run: |
@@ -222,13 +233,14 @@ jobs:
       
       - name: Verify Deployment
         run: |
-          echo "Verifying deployment..."
+          echo "Verifying deployment rollout..."
           
           # O Helm cria recursos com o padrão: <release-name>-<chart-name>
           # user-api (release) + fcg-user-api (chart) = user-api-fcg-user-api
           DEPLOYMENT_NAME="${{ env.HELM_RELEASE_NAME }}-fcg-user-api"
           
-          kubectl rollout status deployment/$DEPLOYMENT_NAME -n ${{ env.K8S_NAMESPACE }} --timeout=10m
+          # Increased timeout to account for External Secrets sync time
+          kubectl rollout status deployment/$DEPLOYMENT_NAME -n ${{ env.K8S_NAMESPACE }} --timeout=15m
           
           echo ""
           echo "Pods:"
