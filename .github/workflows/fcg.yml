@@ -180,35 +180,6 @@ jobs:
           curl https://raw.githubusercontent.com/helm/helm/main/scripts/get-helm-3 | bash
           helm version
       
-      - name: Debug - Check chart structure
-        run: |
-          echo "Listing k8s/ directory:"
-          ls -la k8s/
-          echo ""
-          echo "Templates directory:"
-          ls -la k8s/templates/ || echo "templates/ not found"
-      
-      - name: Wait for SecretStore to be ready
-        run: |
-          echo "Waiting for SecretStore to become valid..."
-          
-          # Wait up to 5 minutes for SecretStore to be ready
-          for i in {1..30}; do
-            STATUS=$(kubectl get secretstore ${{ env.HELM_RELEASE_NAME }}-fcg-user-api-secretstore \
-              -n ${{ env.K8S_NAMESPACE }} \
-              -o jsonpath='{.status.conditions[?(@.type=="Ready")].status}' 2>/dev/null || echo "NotFound")
-            
-            if [ "$STATUS" = "True" ]; then
-              echo "SecretStore is ready!"
-              break
-            fi
-            
-            echo "SecretStore status: $STATUS (attempt $i/30)"
-            sleep 10
-          done
-          
-          kubectl get secretstore -n ${{ env.K8S_NAMESPACE }}
-      
       - name: Deploy to EKS with Helm
         env:
           IMAGE_TAG: ${{ github.sha }}
@@ -219,35 +190,9 @@ jobs:
             --namespace ${{ env.K8S_NAMESPACE }} \
             --create-namespace \
             --set image.tag=$IMAGE_TAG \
-            --timeout 10m \
-            --debug
+            --timeout 10m
           
           echo "Helm deployment completed"
-      
-      - name: Debug - List all resources created
-        run: |
-          echo "All resources in namespace:"
-          kubectl get all -n ${{ env.K8S_NAMESPACE }}
-      
-      - name: Debug - Check pod issues
-        if: always()
-        run: |
-          DEPLOYMENT_NAME="${{ env.HELM_RELEASE_NAME }}-fcg-user-api"
-          
-          echo "Describing deployment:"
-          kubectl describe deployment $DEPLOYMENT_NAME -n ${{ env.K8S_NAMESPACE }} || true
-          
-          echo ""
-          echo "Pod status:"
-          kubectl get pods -n ${{ env.K8S_NAMESPACE }} -l app.kubernetes.io/name=fcg-user-api || true
-          
-          echo ""
-          echo "Pod logs (if any):"
-          kubectl logs -n ${{ env.K8S_NAMESPACE }} -l app.kubernetes.io/name=fcg-user-api --tail=50 || true
-          
-          echo ""
-          echo "Pod events:"
-          kubectl get events -n ${{ env.K8S_NAMESPACE }} --sort-by='.lastTimestamp' | tail -20 || true
       
       - name: Wait for External Secrets sync
         run: |
@@ -264,45 +209,29 @@ jobs:
         run: |
           echo "Verifying deployment rollout..."
           
-          # O Helm cria recursos com o padrão: <release-name>-<chart-name>
-          # user-api (release) + fcg-user-api (chart) = user-api-fcg-user-api
           DEPLOYMENT_NAME="${{ env.HELM_RELEASE_NAME }}-fcg-user-api"
           
-          kubectl rollout status deployment/$DEPLOYMENT_NAME -n ${{ env.K8S_NAMESPACE }} --timeout=5m
+          kubectl rollout status deployment/$DEPLOYMENT_NAME -n ${{ env.K8S_NAMESPACE }} --timeout=10m
           
           echo ""
-          echo "Pods:"
+          echo "Deployment completed successfully"
           kubectl get pods -n ${{ env.K8S_NAMESPACE }} -l app.kubernetes.io/name=fcg-user-api
-          
-          echo ""
-          echo "External Secrets:"
-          kubectl get externalsecret -n ${{ env.K8S_NAMESPACE }}
-          
-          echo ""
-          echo "Ingress:"
-          kubectl get ingress -n ${{ env.K8S_NAMESPACE }}
       
       - name: Get ALB URL
         run: |
-          echo "Waiting for ALB to be provisioned..."
-          sleep 30
-          
-          # O Ingress também segue o padrão: <release-name>-<chart-name>
           INGRESS_NAME="${{ env.HELM_RELEASE_NAME }}-fcg-user-api"
-          
           ALB_URL=$(kubectl get ingress -n ${{ env.K8S_NAMESPACE }} $INGRESS_NAME -o jsonpath='{.status.loadBalancer.ingress[0].hostname}' 2>/dev/null || echo "")
           
           if [ -z "$ALB_URL" ]; then
-            echo "WARNING: ALB still being provisioned. Check status with:"
-            echo "  kubectl get ingress -n ${{ env.K8S_NAMESPACE }} -w"
+            echo "ALB is being provisioned. Check status:"
+            echo "kubectl get ingress -n ${{ env.K8S_NAMESPACE }}"
           else
             echo ""
             echo "=========================================="
             echo "DEPLOYMENT SUCCESSFUL"
             echo "=========================================="
-            echo "ALB URL: http://$ALB_URL"
+            echo "API URL: http://$ALB_URL"
             echo "Health Check: http://$ALB_URL/health"
-            echo "API Docs: http://$ALB_URL/docs"
             echo "=========================================="
           fi
 
