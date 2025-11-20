@@ -13,7 +13,7 @@ env:
   ECR_REPOSITORY: fcg-user-api
   EKS_CLUSTER: fcg
   K8S_NAMESPACE: fcg
-  HELM_RELEASE_NAME: fcg-user-api
+  HELM_RELEASE_NAME: user-api
 
 jobs:
   build:
@@ -205,7 +205,11 @@ jobs:
         run: |
           echo "Verifying deployment..."
           
-          kubectl rollout status deployment/${{ env.HELM_RELEASE_NAME }} -n ${{ env.K8S_NAMESPACE }} --timeout=5m
+          # O Helm cria recursos com o padrão: <release-name>-<chart-name>
+          # user-api (release) + fcg-user-api (chart) = user-api-fcg-user-api
+          DEPLOYMENT_NAME="${{ env.HELM_RELEASE_NAME }}-fcg-user-api"
+          
+          kubectl rollout status deployment/$DEPLOYMENT_NAME -n ${{ env.K8S_NAMESPACE }} --timeout=5m
           
           echo ""
           echo "Pods:"
@@ -224,7 +228,10 @@ jobs:
           echo "Waiting for ALB to be provisioned..."
           sleep 30
           
-          ALB_URL=$(kubectl get ingress -n ${{ env.K8S_NAMESPACE }} ${{ env.HELM_RELEASE_NAME }}-fcg-user-api -o jsonpath='{.status.loadBalancer.ingress[0].hostname}' 2>/dev/null || echo "")
+          # O Ingress também segue o padrão: <release-name>-<chart-name>
+          INGRESS_NAME="${{ env.HELM_RELEASE_NAME }}-fcg-user-api"
+          
+          ALB_URL=$(kubectl get ingress -n ${{ env.K8S_NAMESPACE }} $INGRESS_NAME -o jsonpath='{.status.loadBalancer.ingress[0].hostname}' 2>/dev/null || echo "")
           
           if [ -z "$ALB_URL" ]; then
             echo "WARNING: ALB still being provisioned. Check status with:"
