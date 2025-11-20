@@ -190,16 +190,35 @@ jobs:
             --namespace ${{ env.K8S_NAMESPACE }} \
             --create-namespace \
             --set image.tag=$IMAGE_TAG \
-            --wait \
-            --timeout 5m \
+            --timeout 10m \
             --debug
           
-          echo "Helm deployment completed"
+          echo "Helm deployment completed (install triggered, verification will happen in next step)"
       
       - name: Debug - List all resources created
         run: |
           echo "All resources in namespace:"
           kubectl get all -n ${{ env.K8S_NAMESPACE }}
+      
+      - name: Debug - Check pod issues
+        if: always()
+        run: |
+          DEPLOYMENT_NAME="${{ env.HELM_RELEASE_NAME }}-fcg-user-api"
+          
+          echo "Describing deployment:"
+          kubectl describe deployment $DEPLOYMENT_NAME -n ${{ env.K8S_NAMESPACE }} || true
+          
+          echo ""
+          echo "Pod status:"
+          kubectl get pods -n ${{ env.K8S_NAMESPACE }} -l app.kubernetes.io/name=fcg-user-api || true
+          
+          echo ""
+          echo "Pod logs (if any):"
+          kubectl logs -n ${{ env.K8S_NAMESPACE }} -l app.kubernetes.io/name=fcg-user-api --tail=50 || true
+          
+          echo ""
+          echo "Pod events:"
+          kubectl get events -n ${{ env.K8S_NAMESPACE }} --sort-by='.lastTimestamp' | tail -20 || true
       
       - name: Verify Deployment
         run: |
@@ -209,7 +228,7 @@ jobs:
           # user-api (release) + fcg-user-api (chart) = user-api-fcg-user-api
           DEPLOYMENT_NAME="${{ env.HELM_RELEASE_NAME }}-fcg-user-api"
           
-          kubectl rollout status deployment/$DEPLOYMENT_NAME -n ${{ env.K8S_NAMESPACE }} --timeout=5m
+          kubectl rollout status deployment/$DEPLOYMENT_NAME -n ${{ env.K8S_NAMESPACE }} --timeout=10m
           
           echo ""
           echo "Pods:"
