@@ -1,6 +1,6 @@
 image:
   # ajuste: <aws_account_id>.dkr.ecr.<region>.amazonaws.com/fcg-user-api
-  repository: "951042686167.dkr.ecr.us-east-1.amazonaws.com/teste"
+  repository: "478511033947.dkr.ecr.us-east-1.amazonaws.com/fcg-user-api"
   tag: "latest"
   pullPolicy: IfNotPresent
 
@@ -43,13 +43,13 @@ env:
   OTEL_EXPORTER_OTLP_ENDPOINT: "http://otel-collector:4317"
   # Exemplo: LOG_LEVEL: "Information"
 
-# segredos (coloque valores em values-prod.yaml)
+# NOTA: Secrets agora são gerenciados pelo External Secrets Operator
+# e são buscados diretamente do AWS Secrets Manager:
+# - fcg-api-user-connection-string (connection string do RDS)
+# - fcg-jwt-config (configurações JWT: issuer, audience, key)
 secrets:
-  connectionString: ""  # ConnectionStrings__Default
-  jwt:
-    issuer: ""
-    audience: ""
-    key: ""
+  # Não é mais necessário definir valores aqui
+  # O External Secrets sincroniza automaticamente do AWS Secrets Manager
 
 autoscaling:
   enabled: true
@@ -59,6 +59,6 @@ autoscaling:
   memory: 70
 
 serviceAccount:
-  create: true
-  name: ""       # deixe vazio para nome automático
-  annotations: {}  # ex.: para IRSA: eks.amazonaws.com/role-arn: arn:aws:iam::123:role/role-irsa
+  create: false  # eksctl cria via IRSA
+  name: "fcg-user-api-fcg-user-api"  # nome criado pelo eksctl
+  annotations: {}  # eksctl injeta automaticamente

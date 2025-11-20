@@ -23,7 +23,7 @@ spec:
               value: {{ .Values.env.ASPNETCORE_URLS | quote }}
             - name: OTEL_EXPORTER_OTLP_ENDPOINT
               value: {{ .Values.env.OTEL_EXPORTER_OTLP_ENDPOINT | quote }}
-            - name: ConnectionStrings__Default
+            - name: ConnectionStrings__DefaultConnection
               valueFrom:
                 secretKeyRef:
                   name: {{ include "fcg-user-api.fullname" . }}-secrets
