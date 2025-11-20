@@ -306,7 +306,7 @@ jobs:
             echo "=========================================="
           fi
 
-  # TODO: Descomentar quando for necessário rodar as migrations automaticamente
+  # TODO: Descomentar quando for necessário rodar as migrations automaticament
   # Então adicionar migration como dependência: deploy-eks needs: [build-push, migration]
   migration:
     name: Deploy DB (migrations)
