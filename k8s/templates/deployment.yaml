@@ -1,3 +1,6 @@
+# Deployment: gerencia os pods da aplicação
+# Garante que o número desejado de réplicas esteja sempre rodando
+# Gerencia atualizações rolling (substitui pods gradualmente sem downtime)
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -11,6 +14,7 @@ spec:
     metadata:
       labels: {{- include "fcg-user-api.selectorLabels" . | nindent 8 }}
     spec:
+      # ServiceAccount com IRSA permite acesso ao AWS Secrets Manager
       serviceAccountName: {{ include "fcg-user-api.serviceAccountName" . }}
       containers:
         - name: api
@@ -23,6 +27,8 @@ spec:
               value: {{ .Values.env.ASPNETCORE_URLS | quote }}
             - name: OTEL_EXPORTER_OTLP_ENDPOINT
               value: {{ .Values.env.OTEL_EXPORTER_OTLP_ENDPOINT | quote }}
+            # Secrets sensíveis injetados do Kubernetes Secret
+            # (sincronizado do AWS Secrets Manager via External Secrets Operator)
             - name: ConnectionStrings__DefaultConnection
               valueFrom:
                 secretKeyRef:
@@ -43,16 +49,22 @@ spec:
                 secretKeyRef:
                   name: {{ include "fcg-user-api.fullname" . }}-secrets
                   key: jwt-key
+          # Readiness probe: Kubernetes espera passar antes de enviar tráfego
+          # Se falhar, pod é removido do Service (não recebe requisições)
+          # Readiness probe: Kubernetes espera passar antes de enviar tráfego
+          # Se falhar, pod é removido do Service (não recebe requisições)
           readinessProbe:
             httpGet:
               path: /health
               port: {{ .Values.containerPort }}
-            initialDelaySeconds: 10
-            periodSeconds: 10
+            initialDelaySeconds: 10  # aguarda 10s após pod iniciar
+            periodSeconds: 10         # verifica a cada 10s
+          # Liveness probe: detecta se o pod travou/está morto
+          # Se falhar repetidamente, Kubernetes reinicia o pod
           livenessProbe:
             httpGet:
               path: /health
               port: {{ .Values.containerPort }}
-            initialDelaySeconds: 30
-            periodSeconds: 20
+            initialDelaySeconds: 30  # aguarda 30s (app precisa inicializar)
+            periodSeconds: 20         # verifica a cada 20s
           resources: {{- toYaml .Values.resources | nindent 12 }}

@@ -1,64 +1,80 @@
+# Configuração da imagem Docker no ECR (Elastic Container Registry)
+# O workflow do GitHub Actions sobrescreve a tag com o SHA do commit
 image:
-  # ajuste: <aws_account_id>.dkr.ecr.<region>.amazonaws.com/fcg-user-api
   repository: "478511033947.dkr.ecr.us-east-1.amazonaws.com/fcg-user-api"
   tag: "latest"
   pullPolicy: IfNotPresent
 
+# Número de pods que serão criados inicialmente
+# O HPA (Horizontal Pod Autoscaler) pode aumentar/diminuir baseado em carga
 replicaCount: 2
 
-# porta do container ASP.NET
+# Porta exposta pelo container ASP.NET Core
 containerPort: 5067
 
+# Service expõe os pods internamente no cluster
+# ClusterIP = apenas acessível dentro do cluster (não exposto externamente)
 service:
   type: ClusterIP
   port: 80
 
+# Ingress cria um ALB (Application Load Balancer) para acesso externo
+# O AWS Load Balancer Controller converte esse recurso em um ALB real na AWS
 ingress:
   enabled: true
-  className: alb
-  host: ""              # opcional (deixe vazio se não usar domínio)
+  className: alb  # usa o AWS Load Balancer Controller
+  host: ""  # deixe vazio para aceitar qualquer hostname
   path: /
   annotations:
+    # scheme: internet-facing = ALB público (acessível pela internet)
     alb.ingress.kubernetes.io/scheme: internet-facing
+    # target-type: ip = ALB roteia diretamente para IPs dos pods (mais eficiente)
     alb.ingress.kubernetes.io/target-type: ip
+    # group.name: permite múltiplos Ingress compartilharem o mesmo ALB
+    # Todas as APIs com group.name=fcg usarão o mesmo ALB
     alb.ingress.kubernetes.io/group.name: fcg
+    # healthcheck-path: endpoint usado pelo ALB para verificar saúde dos pods
     alb.ingress.kubernetes.io/healthcheck-path: /health
     alb.ingress.kubernetes.io/listen-ports: '[{"HTTP":80}]'
     alb.ingress.kubernetes.io/actions.ssl-redirect: '{"Type": "redirect", "RedirectConfig": { "Protocol": "HTTP", "Port": "80", "StatusCode": "HTTP_301"}}'
-    # Para HTTPS (opcional):
-    # alb.ingress.kubernetes.io/certificate-arn: arn:aws:acm:REGION:ACCOUNT:certificate/XXXXX
-    # alb.ingress.kubernetes.io/ssl-redirect: '443'
 
+# Recursos garantidos (requests) e limites (limits) para cada pod
+# requests: Kubernetes garante esses recursos ao agendar o pod
+# limits: Valores máximos que o pod pode usar (exceder memory = pod é morto)
 resources:
   requests:
-    cpu: 100m
-    memory: 128Mi
+    cpu: 100m      # 0.1 CPU
+    memory: 128Mi  # 128 megabytes
   limits:
-    cpu: 500m
-    memory: 512Mi
+    cpu: 500m      # 0.5 CPU
+    memory: 512Mi  # 512 megabytes
 
-# env não sensíveis
+# Variáveis de ambiente não sensíveis (valores públicos)
 env:
   ASPNETCORE_URLS: "http://+:5067"
   OTEL_EXPORTER_OTLP_ENDPOINT: "http://otel-collector:4317"
-  # Exemplo: LOG_LEVEL: "Information"
 
-# NOTA: Secrets agora são gerenciados pelo External Secrets Operator
-# e são buscados diretamente do AWS Secrets Manager:
-# - fcg-api-user-connection-string (connection string do RDS)
-# - fcg-jwt-config (configurações JWT: issuer, audience, key)
+# Secrets sensíveis (senhas, tokens, etc) NÃO são definidos aqui!
+# São gerenciados pelo External Secrets Operator que sincroniza do AWS Secrets Manager:
+# 
+# Secrets necessários no AWS Secrets Manager:
+# 1. fcg-api-user-connection-string: connection string do banco RDS
+# 2. fcg-jwt-config: JSON com { "issuer", "audience", "key" }
 secrets:
-  # Não é mais necessário definir valores aqui
-  # O External Secrets sincroniza automaticamente do AWS Secrets Manager
+  # Deixe vazio - External Secrets faz a sincronização automaticamente
 
+# HPA (Horizontal Pod Autoscaler) - escalonamento automático baseado em métricas
+# Aumenta/diminui número de pods automaticamente baseado em carga
 autoscaling:
   enabled: true
-  minReplicas: 2
-  maxReplicas: 5
-  cpu: 60
-  memory: 70
+  minReplicas: 2  # mínimo de pods (sempre rodando)
+  maxReplicas: 5  # máximo de pods (sob alta carga)
+  cpu: 60         # escala quando CPU média > 60%
+  memory: 70      # escala quando memória média > 70%
 
+# ServiceAccount com IRSA (IAM Roles for Service Accounts)
+# Permite que pods assumam roles IAM sem credenciais estáticas
 serviceAccount:
-  create: false  # eksctl cria via IRSA no workflow de deploy
-  name: "fcg-user-api-sa"  # nome criado pelo workflow do GitHub Actions
-  annotations: {}  # eksctl injeta automaticamente o ARN da role
+  create: false  # false porque o eksctl cria durante o deploy (workflow)
+  name: "fcg-user-api-sa"  # deve corresponder ao nome usado no workflow
+  annotations: {}  # eksctl injeta automaticamente eks.amazonaws.com/role-arn

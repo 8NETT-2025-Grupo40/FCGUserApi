@@ -126,7 +126,7 @@ jobs:
   deploy-eks:
     name: Deploy to EKS
     needs: [build-push]
-    # TODO: if: github.event_name == 'push'
+    # TODO: Descomentar antes de fazer o merge if: github.event_name == 'push'
     runs-on: ubuntu-latest
     environment: production
     
@@ -141,11 +141,15 @@ jobs:
           aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
           aws-region: ${{ env.AWS_REGION }}
       
+      # Configura kubectl para se conectar ao cluster EKS
+      # Isso cria/atualiza o arquivo ~/.kube/config com as credenciais do cluster
       - name: Update kubeconfig
         run: |
           aws eks update-kubeconfig --region ${{ env.AWS_REGION }} --name ${{ env.EKS_CLUSTER }}
           kubectl cluster-info
       
+      # Instala eksctl - ferramenta CLI para gerenciar clusters EKS
+      # Usado para criar IRSA (IAM Roles for Service Accounts)
       - name: Install eksctl
         run: |
           curl -sLO "https://github.com/eksctl-io/eksctl/releases/latest/download/eksctl_Linux_amd64.tar.gz"
@@ -153,6 +157,15 @@ jobs:
           sudo mv /tmp/eksctl /usr/local/bin
           eksctl version
       
+      # IRSA (IAM Roles for Service Accounts) permite que pods no Kubernetes
+      # assumam roles IAM da AWS sem usar credenciais estáticas.
+      # Isso é necessário para o External Secrets Operator acessar o AWS Secrets Manager.
+      # 
+      # Como funciona:
+      # 1. Cria um ServiceAccount no Kubernetes (fcg-user-api-sa)
+      # 2. Cria uma IAM Role vinculada ao ServiceAccount via OIDC
+      # 3. Anexa a policy FCGExternalSecretsPolicy à role
+      # 4. Pods que usam esse ServiceAccount podem acessar Secrets Manager
       - name: Create/Update IRSA for External Secrets
         run: |
           echo "Checking if IRSA already exists..."
@@ -175,11 +188,24 @@ jobs:
             IRSA_EXISTS=false
           fi
       
+      # Helm é o gerenciador de pacotes do Kubernetes
+      # Permite deployar aplicações usando templates (charts)
       - name: Install Helm
         run: |
           curl https://raw.githubusercontent.com/helm/helm/main/scripts/get-helm-3 | bash
           helm version
       
+      # Deploy da aplicação no EKS usando Helm
+      # O comando "upgrade --install" faz:
+      # - Se o release não existe: instala (primeira vez)
+      # - Se já existe: atualiza (deploys subsequentes)
+      # 
+      # O chart em ./k8s/ contém:
+      # - Deployment: define os pods da aplicação
+      # - Service: expõe os pods internamente
+      # - Ingress: cria ALB para acesso externo
+      # - HPA: autoscaling baseado em CPU/memória
+      # - ExternalSecret: sincroniza secrets do AWS Secrets Manager
       - name: Deploy to EKS with Helm
         env:
           IMAGE_TAG: ${{ github.sha }}
@@ -194,6 +220,9 @@ jobs:
           
           echo "Helm deployment completed"
       
+      # External Secrets Operator sincroniza secrets do AWS Secrets Manager
+      # para Kubernetes Secrets. Aguardamos a sincronização antes de verificar
+      # os pods, pois eles dependem desses secrets (connection string, JWT config, etc)
       - name: Wait for External Secrets sync
         run: |
           echo "Waiting for External Secrets to sync..."
@@ -205,6 +234,11 @@ jobs:
           
           echo "External Secrets synced successfully"
       
+      # Verifica se o deployment foi concluído com sucesso
+      # "kubectl rollout status" aguarda até que:
+      # - Todos os pods novos estejam Running
+      # - Todos os pods antigos sejam terminados
+      # - Health checks (readiness/liveness) passem
       - name: Verify Deployment
         run: |
           echo "Verifying deployment rollout..."
@@ -217,6 +251,12 @@ jobs:
           echo "Deployment completed successfully"
           kubectl get pods -n ${{ env.K8S_NAMESPACE }} -l app.kubernetes.io/name=fcg-user-api
       
+      # Obtém a URL do ALB (Application Load Balancer)
+      # O AWS Load Balancer Controller cria automaticamente um ALB quando
+      # o Ingress é criado. O ALB distribui tráfego entre os pods da aplicação.
+      # 
+      # Nota: O ALB pode levar 2-3 minutos para ser provisionado na primeira vez.
+      # Em deploys subsequentes, o mesmo ALB é reutilizado (via annotation group.name).
       - name: Get ALB URL
         run: |
           INGRESS_NAME="${{ env.HELM_RELEASE_NAME }}-fcg-user-api"

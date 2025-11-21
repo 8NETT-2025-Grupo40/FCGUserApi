@@ -1,4 +1,7 @@
 {{- if .Values.ingress.enabled }}
+# Ingress: define regras de roteamento HTTP/HTTPS
+# O AWS Load Balancer Controller converte isso em um ALB (Application Load Balancer)
+# Annotations em values.yaml controlam configuração do ALB (internet-facing, target-type, etc)
 apiVersion: networking.k8s.io/v1
 kind: Ingress
 metadata:

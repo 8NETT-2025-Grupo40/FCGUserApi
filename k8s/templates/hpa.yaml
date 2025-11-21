@@ -1,4 +1,12 @@
 {{- if .Values.autoscaling.enabled }}
+# HorizontalPodAutoscaler: escalonamento automático baseado em métricas
+# Monitora uso de CPU/memória e aumenta/diminui número de pods automaticamente
+# 
+# Funcionamento:
+# 1. Metrics Server coleta métricas de CPU/memória dos pods
+# 2. HPA verifica se média está acima dos targets definidos
+# 3. Se sim, aumenta réplicas (até maxReplicas)
+# 4. Se não, diminui réplicas (até minReplicas)
 apiVersion: autoscaling/v2
 kind: HorizontalPodAutoscaler
 metadata:
