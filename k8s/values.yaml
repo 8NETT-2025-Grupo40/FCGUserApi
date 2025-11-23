@@ -24,7 +24,13 @@ ingress:
   enabled: true
   className: alb  # usa o AWS Load Balancer Controller
   host: ""  # deixe vazio para aceitar qualquer hostname
-  path: /
+  paths:
+    - path: /users
+      pathType: Prefix
+    - path: /auth
+      pathType: Prefix
+    - path: /health
+      pathType: Prefix
   annotations:
     # scheme: internet-facing = ALB público (acessível pela internet)
     alb.ingress.kubernetes.io/scheme: internet-facing
