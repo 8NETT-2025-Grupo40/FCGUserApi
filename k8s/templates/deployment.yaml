@@ -25,6 +25,10 @@ spec:
           env:
             - name: ASPNETCORE_URLS
               value: {{ .Values.env.ASPNETCORE_URLS | quote }}
+            - name: ASPNETCORE_ENVIRONMENT
+              value: {{ .Values.env.ASPNETCORE_ENVIRONMENT | quote }}
+            - name: AWS__Region
+              value: {{ .Values.env.AWS__Region | quote }}
             - name: OTEL_EXPORTER_OTLP_ENDPOINT
               value: {{ .Values.env.OTEL_EXPORTER_OTLP_ENDPOINT | quote }}
             # Secrets sensíveis injetados do Kubernetes Secret
@@ -67,4 +71,23 @@ spec:
               port: {{ .Values.containerPort }}
             initialDelaySeconds: 30  # aguarda 30s (app precisa inicializar)
             periodSeconds: 20         # verifica a cada 20s
-          resources: {{- toYaml .Values.resources | nindent 12 }}
+          resources: {{- toYaml .Values.resources.api | nindent 12 }}
+        # Container 2: AWS OTEL Collector (sidecar)
+        # Coleta traces e envia para AWS X-Ray
+        - name: aws-otel-collector
+          image: "{{ .Values.otelCollector.repository }}:{{ .Values.otelCollector.tag }}"
+          imagePullPolicy: {{ .Values.otelCollector.pullPolicy }}
+          command:
+            - "/awscollector"
+            - "--config=/etc/ecs/ecs-xray.yaml"
+          ports:
+            - name: otlp-grpc
+              containerPort: {{ .Values.otelCollectorPort }}
+              protocol: TCP
+            - name: otlp-http
+              containerPort: 4318
+              protocol: TCP
+          env:
+            - name: AWS_REGION
+              value: {{ .Values.env.AWS__Region | quote }}
+          resources: {{- toYaml .Values.resources.otelCollector | nindent 12 }}

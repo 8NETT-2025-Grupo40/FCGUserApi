@@ -5,12 +5,20 @@ image:
   tag: "latest"
   pullPolicy: IfNotPresent
 
+# Imagem AWS OTEL Collector (sidecar observability)
+otelCollector:
+  repository: "public.ecr.aws/aws-observability/aws-otel-collector"
+  tag: "v0.45.0"
+  pullPolicy: IfNotPresent
+
 # Número de pods que serão criados inicialmente
 # O HPA (Horizontal Pod Autoscaler) pode aumentar/diminuir baseado em carga
 replicaCount: 2
 
 # Porta exposta pelo container ASP.NET Core
 containerPort: 5067
+# Porta do OTEL Collector (gRPC)
+otelCollectorPort: 4317
 
 # Service expõe os pods internamente no cluster
 # ClusterIP = apenas acessível dentro do cluster (não exposto externamente)
@@ -48,17 +56,29 @@ ingress:
 # requests: Kubernetes garante esses recursos ao agendar o pod
 # limits: Valores máximos que o pod pode usar (exceder memory = pod é morto)
 resources:
-  requests:
-    cpu: 100m      # 0.1 CPU
-    memory: 128Mi  # 128 megabytes
-  limits:
-    cpu: 500m      # 0.5 CPU
-    memory: 512Mi  # 512 megabytes
+  api:
+    requests:
+      cpu: 100m      # 0.1 CPU
+      memory: 128Mi  # 128 megabytes
+    limits:
+      cpu: 500m      # 0.5 CPU
+      memory: 512Mi  # 512 megabytes
+  # OTEL Collector sidecar (leve)
+  otelCollector:
+    requests:
+      cpu: 50m
+      memory: 64Mi
+    limits:
+      cpu: 200m
+      memory: 128Mi
 
 # Variáveis de ambiente não sensíveis (valores públicos)
 env:
   ASPNETCORE_URLS: "http://+:5067"
-  OTEL_EXPORTER_OTLP_ENDPOINT: "http://otel-collector:4317"
+  ASPNETCORE_ENVIRONMENT: "Production"
+  AWS__Region: "us-east-1"
+  # OTEL Collector é sidecar - comunicação via localhost
+  OTEL_EXPORTER_OTLP_ENDPOINT: "http://localhost:4317"
 
 # Secrets sensíveis (senhas, tokens, etc) NÃO são definidos aqui!
 # São gerenciados pelo External Secrets Operator que sincroniza do AWS Secrets Manager:
