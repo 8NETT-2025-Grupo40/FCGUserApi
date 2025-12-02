@@ -8,8 +8,7 @@ on:
 
 env:
   AWS_REGION: us-east-1
-  # TODO: colocar nos Secrets do GitHub Actions
-  AWS_ACCOUNT_ID: 478511033947
+  AWS_ACCOUNT_ID: ${{ secrets.AWS_ACCOUNT_ID }}
   ECR_REPOSITORY: fcg-user-api
   EKS_CLUSTER: fcg
   K8S_NAMESPACE: fcg
@@ -125,7 +124,7 @@ jobs:
 
   deploy-eks:
     name: Deploy to EKS
-    needs: [build-push]
+    needs: [build-push, migration]
     # TODO: Descomentar antes de fazer o merge if: github.event_name == 'push'
     runs-on: ubuntu-latest
     environment: production
@@ -275,13 +274,10 @@ jobs:
             echo "=========================================="
           fi
 
-  # TODO: Descomentar quando for necessário rodar as migrations automaticament
-  # Então adicionar migration como dependência: deploy-eks needs: [build-push, migration]
   migration:
     name: Deploy DB (migrations)
     needs: [build, tests]
     environment: production
-    if: false  # Desabilitado temporariamente
     runs-on: 
       - self-hosted
       - linux
