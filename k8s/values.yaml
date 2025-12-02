@@ -1,0 +1,106 @@
+# Configuração da imagem Docker no ECR (Elastic Container Registry)
+# O workflow do GitHub Actions sobrescreve a tag com o SHA do commit
+image:
+  repository: "478511033947.dkr.ecr.us-east-1.amazonaws.com/fcg-user-api"
+  tag: "latest"
+  pullPolicy: IfNotPresent
+
+# Imagem AWS OTEL Collector (sidecar observability)
+otelCollector:
+  repository: "public.ecr.aws/aws-observability/aws-otel-collector"
+  tag: "v0.45.0"
+  pullPolicy: IfNotPresent
+
+# Número de pods que serão criados inicialmente
+# O HPA (Horizontal Pod Autoscaler) pode aumentar/diminuir baseado em carga
+replicaCount: 2
+
+# Porta exposta pelo container ASP.NET Core
+containerPort: 5067
+# Porta do OTEL Collector (gRPC)
+otelCollectorPort: 4317
+
+# Service expõe os pods internamente no cluster
+# ClusterIP = apenas acessível dentro do cluster (não exposto externamente)
+service:
+  type: ClusterIP
+  port: 80
+
+# Ingress cria um ALB (Application Load Balancer) para acesso externo
+# O AWS Load Balancer Controller converte esse recurso em um ALB real na AWS
+ingress:
+  enabled: true
+  className: alb  # usa o AWS Load Balancer Controller
+  host: ""  # deixe vazio para aceitar qualquer hostname
+  paths:
+    - path: /users
+      pathType: Prefix
+    - path: /auth
+      pathType: Prefix
+    - path: /health
+      pathType: Prefix
+  annotations:
+    # scheme: internet-facing = ALB público (acessível pela internet)
+    alb.ingress.kubernetes.io/scheme: internet-facing
+    # target-type: ip = ALB roteia diretamente para IPs dos pods (mais eficiente)
+    alb.ingress.kubernetes.io/target-type: ip
+    # group.name: permite múltiplos Ingress compartilharem o mesmo ALB
+    # Todas as APIs com group.name=fcg usarão o mesmo ALB
+    alb.ingress.kubernetes.io/group.name: fcg
+    # healthcheck-path: endpoint usado pelo ALB para verificar saúde dos pods
+    alb.ingress.kubernetes.io/healthcheck-path: /health
+    alb.ingress.kubernetes.io/listen-ports: '[{"HTTP":80}]'
+    alb.ingress.kubernetes.io/actions.ssl-redirect: '{"Type": "redirect", "RedirectConfig": { "Protocol": "HTTP", "Port": "80", "StatusCode": "HTTP_301"}}'
+
+# Recursos garantidos (requests) e limites (limits) para cada pod
+# requests: Kubernetes garante esses recursos ao agendar o pod
+# limits: Valores máximos que o pod pode usar (exceder memory = pod é morto)
+resources:
+  api:
+    requests:
+      cpu: 100m      # 0.1 CPU
+      memory: 128Mi  # 128 megabytes
+    limits:
+      cpu: 500m      # 0.5 CPU
+      memory: 512Mi  # 512 megabytes
+  # OTEL Collector sidecar (leve)
+  otelCollector:
+    requests:
+      cpu: 50m
+      memory: 64Mi
+    limits:
+      cpu: 200m
+      memory: 128Mi
+
+# Variáveis de ambiente não sensíveis (valores públicos)
+env:
+  ASPNETCORE_URLS: "http://+:5067"
+  ASPNETCORE_ENVIRONMENT: "Production"
+  AWS__Region: "us-east-1"
+  # OTEL Collector é sidecar - comunicação via localhost
+  OTEL_EXPORTER_OTLP_ENDPOINT: "http://localhost:4317"
+
+# Secrets sensíveis (senhas, tokens, etc) NÃO são definidos aqui!
+# São gerenciados pelo External Secrets Operator que sincroniza do AWS Secrets Manager:
+# 
+# Secrets necessários no AWS Secrets Manager:
+# 1. fcg-api-user-connection-string: connection string do banco RDS
+# 2. fcg-jwt-config: JSON com { "issuer", "audience", "key" }
+secrets:
+  # Deixe vazio - External Secrets faz a sincronização automaticamente
+
+# HPA (Horizontal Pod Autoscaler) - escalonamento automático baseado em métricas
+# Aumenta/diminui número de pods automaticamente baseado em carga
+autoscaling:
+  enabled: true
+  minReplicas: 2  # mínimo de pods (sempre rodando)
+  maxReplicas: 5  # máximo de pods (sob alta carga)
+  cpu: 60         # escala quando CPU média > 60%
+  memory: 70      # escala quando memória média > 70%
+
+# ServiceAccount com IRSA (IAM Roles for Service Accounts)
+# Permite que pods assumam roles IAM sem credenciais estáticas
+serviceAccount:
+  create: false  # false porque o eksctl cria durante o deploy (workflow)
+  name: "fcg-user-api-sa"  # deve corresponder ao nome usado no workflow
+  annotations: {}  # eksctl injeta automaticamente eks.amazonaws.com/role-arn

@@ -2,17 +2,17 @@ name: Fiap Cloud Games CI - User API
 
 on:
   push:
-    branches: [ 'main' ]
+    branches: [ 'main']
   pull_request:
     types: [opened, synchronize]
 
 env:
   AWS_REGION: us-east-1
+  AWS_ACCOUNT_ID: ${{ secrets.AWS_ACCOUNT_ID }}
   ECR_REPOSITORY: fcg-user-api
-  ECS_SERVICE: FCG-TSK-USER-ECS-service-tr9krf21
-  ECS_CLUSTER: FCG-Cluster
-  ECS_TASK_DEFINITION: .github/ecs/ecs-task-def.json
-  CONTAINER_NAME: fcg-user-api
+  EKS_CLUSTER: fcg
+  K8S_NAMESPACE: fcg
+  HELM_RELEASE_NAME: user-api
 
 jobs:
   build:
@@ -74,29 +74,228 @@ jobs:
           reporter: dotnet-trx
           fail-on-error: true
 
+  build-push:
+    name: Build and Push Docker Image
+    needs: [build, tests]
+    if: github.event_name == 'push'
+    runs-on: ubuntu-latest
+    outputs:
+      image-tag: ${{ steps.meta.outputs.tags }}
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+      
+      - name: Configure AWS Credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ env.AWS_REGION }}
+      
+      - name: Login to Amazon ECR
+        id: login-ecr
+        uses: aws-actions/amazon-ecr-login@v2
+      
+      - name: Generate Docker metadata
+        id: meta
+        env:
+          ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
+        run: |
+          IMAGE_TAG="${{ github.sha }}"
+          echo "tags=$ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG" >> $GITHUB_OUTPUT
+          echo "latest=$ECR_REGISTRY/$ECR_REPOSITORY:latest" >> $GITHUB_OUTPUT
+      
+      - name: Build and Push Docker Image
+        env:
+          IMAGE_TAG: ${{ steps.meta.outputs.tags }}
+          IMAGE_LATEST: ${{ steps.meta.outputs.latest }}
+        run: |
+          echo "Building Docker image..."
+          docker build -t $IMAGE_TAG -t $IMAGE_LATEST .
+          
+          echo "Pushing to ECR..."
+          docker push $IMAGE_TAG
+          docker push $IMAGE_LATEST
+          
+          echo "Image pushed successfully"
+          echo "Tag: $IMAGE_TAG"
+          echo "Latest: $IMAGE_LATEST"
+
+  deploy-eks:
+    name: Deploy to EKS
+    needs: [build-push, migration]
+    if: github.event_name == 'push'
+    runs-on: ubuntu-latest
+    environment: production
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+      
+      - name: Configure AWS Credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ env.AWS_REGION }}
+      
+      # Configura kubectl para se conectar ao cluster EKS
+      # Isso cria/atualiza o arquivo ~/.kube/config com as credenciais do cluster
+      - name: Update kubeconfig
+        run: |
+          aws eks update-kubeconfig --region ${{ env.AWS_REGION }} --name ${{ env.EKS_CLUSTER }}
+          kubectl cluster-info
+      
+      # Instala eksctl - ferramenta CLI para gerenciar clusters EKS
+      # Usado para criar IRSA (IAM Roles for Service Accounts)
+      - name: Install eksctl
+        run: |
+          curl -sLO "https://github.com/eksctl-io/eksctl/releases/latest/download/eksctl_Linux_amd64.tar.gz"
+          tar -xzf eksctl_Linux_amd64.tar.gz -C /tmp
+          sudo mv /tmp/eksctl /usr/local/bin
+          eksctl version
+      
+      # IRSA (IAM Roles for Service Accounts) permite que pods no Kubernetes
+      # assumam roles IAM da AWS sem usar credenciais estáticas.
+      # Isso é necessário para o External Secrets Operator acessar o AWS Secrets Manager.
+      # 
+      # Como funciona:
+      # 1. Cria um ServiceAccount no Kubernetes (fcg-user-api-sa)
+      # 2. Cria uma IAM Role vinculada ao ServiceAccount via OIDC
+      # 3. Anexa a policy FCGExternalSecretsPolicy à role
+      # 4. Pods que usam esse ServiceAccount podem acessar Secrets Manager
+      - name: Create/Update IRSA for External Secrets
+        run: |
+          echo "Checking if IRSA already exists..."
+          if kubectl get serviceaccount fcg-user-api-sa -n ${{ env.K8S_NAMESPACE }} &>/dev/null; then
+            echo "ServiceAccount already exists, skipping IRSA creation"
+            IRSA_EXISTS=true
+          else
+            echo "Creating IRSA for fcg-user-api-sa..."
+            eksctl create iamserviceaccount \
+              --cluster=${{ env.EKS_CLUSTER }} \
+              --namespace=${{ env.K8S_NAMESPACE }} \
+              --name=fcg-user-api-sa \
+              --attach-policy-arn=arn:aws:iam::${{ env.AWS_ACCOUNT_ID }}:policy/FCGExternalSecretsPolicy \
+              --approve \
+              --region=${{ env.AWS_REGION }}
+            
+            echo "IRSA created successfully"
+            echo "Waiting 30s for IAM propagation..."
+            sleep 30
+            IRSA_EXISTS=false
+          fi
+      
+      # Helm é o gerenciador de pacotes do Kubernetes
+      # Permite deployar aplicações usando templates (charts)
+      - name: Install Helm
+        run: |
+          curl https://raw.githubusercontent.com/helm/helm/main/scripts/get-helm-3 | bash
+          helm version
+      
+      # Deploy da aplicação no EKS usando Helm
+      # O comando "upgrade --install" faz:
+      # - Se o release não existe: instala (primeira vez)
+      # - Se já existe: atualiza (deploys subsequentes)
+      # 
+      # O chart em ./k8s/ contém:
+      # - Deployment: define os pods da aplicação
+      # - Service: expõe os pods internamente
+      # - Ingress: cria ALB para acesso externo
+      # - HPA: autoscaling baseado em CPU/memória
+      # - ExternalSecret: sincroniza secrets do AWS Secrets Manager
+      - name: Deploy to EKS with Helm
+        env:
+          IMAGE_TAG: ${{ github.sha }}
+        run: |
+          echo "Deploying FCG User API to EKS..."
+          
+          helm upgrade --install ${{ env.HELM_RELEASE_NAME }} ./k8s \
+            --namespace ${{ env.K8S_NAMESPACE }} \
+            --create-namespace \
+            --set image.tag=$IMAGE_TAG \
+            --timeout 10m
+          
+          echo "Helm deployment completed"
+      
+      # External Secrets Operator sincroniza secrets do AWS Secrets Manager
+      # para Kubernetes Secrets. Aguardamos a sincronização antes de verificar
+      # os pods, pois eles dependem desses secrets (connection string, JWT config, etc)
+      - name: Wait for External Secrets sync
+        run: |
+          echo "Waiting for External Secrets to sync..."
+          
+          kubectl wait --for=condition=Ready \
+            externalsecret/${{ env.HELM_RELEASE_NAME }}-fcg-user-api-externalsecret \
+            -n ${{ env.K8S_NAMESPACE }} \
+            --timeout=120s
+          
+          echo "External Secrets synced successfully"
+      
+      # Verifica se o deployment foi concluído com sucesso
+      # "kubectl rollout status" aguarda até que:
+      # - Todos os pods novos estejam Running
+      # - Todos os pods antigos sejam terminados
+      # - Health checks (readiness/liveness) passem
+      - name: Verify Deployment
+        run: |
+          echo "Verifying deployment rollout..."
+          
+          DEPLOYMENT_NAME="${{ env.HELM_RELEASE_NAME }}-fcg-user-api"
+          
+          kubectl rollout status deployment/$DEPLOYMENT_NAME -n ${{ env.K8S_NAMESPACE }} --timeout=10m
+          
+          echo ""
+          echo "Deployment completed successfully"
+          kubectl get pods -n ${{ env.K8S_NAMESPACE }} -l app.kubernetes.io/name=fcg-user-api
+      
+      # Obtém a URL do ALB (Application Load Balancer)
+      # O AWS Load Balancer Controller cria automaticamente um ALB quando
+      # o Ingress é criado. O ALB distribui tráfego entre os pods da aplicação.
+      # 
+      # Nota: O ALB pode levar 2-3 minutos para ser provisionado na primeira vez.
+      # Em deploys subsequentes, o mesmo ALB é reutilizado (via annotation group.name).
+      - name: Get ALB URL
+        run: |
+          INGRESS_NAME="${{ env.HELM_RELEASE_NAME }}-fcg-user-api"
+          ALB_URL=$(kubectl get ingress -n ${{ env.K8S_NAMESPACE }} $INGRESS_NAME -o jsonpath='{.status.loadBalancer.ingress[0].hostname}' 2>/dev/null || echo "")
+          
+          if [ -z "$ALB_URL" ]; then
+            echo "ALB is being provisioned. Check status:"
+            echo "kubectl get ingress -n ${{ env.K8S_NAMESPACE }}"
+          else
+            echo ""
+            echo "=========================================="
+            echo "DEPLOYMENT SUCCESSFUL"
+            echo "=========================================="
+            echo "API URL: http://$ALB_URL"
+            echo "Health Check: http://$ALB_URL/health"
+            echo "=========================================="
+          fi
+
   migration:
     name: Deploy DB (migrations)
     needs: [build, tests]
     environment: production
-    # if: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' }}
     runs-on: 
       - self-hosted
       - linux
       - X64
     env:
-      # Declaramos aqui a variável vazia para o linter/intellisense do GitHub Actions
-      # entender que ela existe. O valor real é atribuído em tempo de execução
-      # pelo passo “Get RDS connection string” via $GITHUB_ENV.
       RDS_CONNECTION_STRING: ''
+  
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
+      
       - name: Configure AWS credentials
-        uses: aws-actions/configure-aws-credentials@v2
+        uses: aws-actions/configure-aws-credentials@v4
         with:
           aws-region: ${{ env.AWS_REGION }}
-          aws-access-key-id:     ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
           aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+
 
       - name: Get RDS connection string from Secrets Manager
         id: get-rds-secret
@@ -120,52 +319,3 @@ jobs:
             --configuration Release \
             --project src/Adapters/Drivers/FCGUser.Api/FCGUser.Api.csproj \
             --connection "$ConnectionStrings__DefaultConnection"
-
-  deploy:
-    name: Publish docker image on ECR and deploy to ECS
-    needs: [build, tests, migration]
-    environment: production
-    # if: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' }}
-    runs-on: ubuntu-latest
-    outputs:
-      image: ${{ steps.build-image.outputs.IMAGE }}
-    steps:
-      - name: Check out repository code
-        uses: actions/checkout@v4
-
-      - name: Configure AWS credentials
-        uses: aws-actions/configure-aws-credentials@0e613a0980cbf65ed5b322eb7a1e075d28913a83
-        with: 
-          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
-          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
-          aws-region: ${{ env.AWS_REGION }}
-
-      - name: Login to Amazon ECR
-        id: login-ecr
-        uses: aws-actions/amazon-ecr-login@62f4f872db3836360b72999f4b87f1ff13310f3a
-
-      - name: Build, tag and push image to Amazon ECR
-        id: build-image
-        env:
-          ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
-          IMAGE_TAG: latest
-        run: |
-          docker build -t $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG .
-          docker push $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG
-          echo "image=$ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG" >> $GITHUB_OUTPUT
-
-      - name: Fill the image ID in the ECS task definition
-        id: task-def
-        uses: aws-actions/amazon-ecs-render-task-definition@c804dfbdd57f713b6c079302a4c01db7017a36fc
-        with:
-          task-definition: ${{ env.ECS_TASK_DEFINITION }}
-          container-name: ${{ env.CONTAINER_NAME }}
-          image: ${{ steps.build-image.outputs.image }}
-
-      - name: Deploy ECS Task Definition
-        uses: aws-actions/amazon-ecs-deploy-task-definition@df9643053eda01f169e64a0e60233aacca83799a
-        with:
-          task-definition: ${{ steps.task-def.outputs.task-definition }}
-          service: ${{ env.ECS_SERVICE }}
-          cluster: ${{ env.ECS_CLUSTER }}
-          wait-for-service-stability: true

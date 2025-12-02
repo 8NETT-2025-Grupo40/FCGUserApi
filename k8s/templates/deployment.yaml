@@ -1,0 +1,93 @@
+# Deployment: gerencia os pods da aplicação
+# Garante que o número desejado de réplicas esteja sempre rodando
+# Gerencia atualizações rolling (substitui pods gradualmente sem downtime)
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "fcg-user-api.fullname" . }}
+  labels: {{- include "fcg-user-api.labels" . | nindent 4 }}
+spec:
+  replicas: {{ .Values.replicaCount }}
+  selector:
+    matchLabels: {{- include "fcg-user-api.selectorLabels" . | nindent 6 }}
+  template:
+    metadata:
+      labels: {{- include "fcg-user-api.selectorLabels" . | nindent 8 }}
+    spec:
+      # ServiceAccount com IRSA permite acesso ao AWS Secrets Manager
+      serviceAccountName: {{ include "fcg-user-api.serviceAccountName" . }}
+      containers:
+        - name: api
+          image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          ports:
+            - containerPort: {{ .Values.containerPort }}
+          env:
+            - name: ASPNETCORE_URLS
+              value: {{ .Values.env.ASPNETCORE_URLS | quote }}
+            - name: ASPNETCORE_ENVIRONMENT
+              value: {{ .Values.env.ASPNETCORE_ENVIRONMENT | quote }}
+            - name: AWS__Region
+              value: {{ .Values.env.AWS__Region | quote }}
+            - name: OTEL_EXPORTER_OTLP_ENDPOINT
+              value: {{ .Values.env.OTEL_EXPORTER_OTLP_ENDPOINT | quote }}
+            # Secrets sensíveis injetados do Kubernetes Secret
+            # (sincronizado do AWS Secrets Manager via External Secrets Operator)
+            - name: ConnectionStrings__DefaultConnection
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "fcg-user-api.fullname" . }}-secrets
+                  key: connectionString
+            - name: Jwt__Issuer
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "fcg-user-api.fullname" . }}-secrets
+                  key: jwt-issuer
+            - name: Jwt__Audience
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "fcg-user-api.fullname" . }}-secrets
+                  key: jwt-audience
+            - name: Jwt__Key
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "fcg-user-api.fullname" . }}-secrets
+                  key: jwt-key
+          # Readiness probe: Kubernetes espera passar antes de enviar tráfego
+          # Se falhar, pod é removido do Service (não recebe requisições)
+          # Readiness probe: Kubernetes espera passar antes de enviar tráfego
+          # Se falhar, pod é removido do Service (não recebe requisições)
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: {{ .Values.containerPort }}
+            initialDelaySeconds: 10  # aguarda 10s após pod iniciar
+            periodSeconds: 10         # verifica a cada 10s
+          # Liveness probe: detecta se o pod travou/está morto
+          # Se falhar repetidamente, Kubernetes reinicia o pod
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: {{ .Values.containerPort }}
+            initialDelaySeconds: 30  # aguarda 30s (app precisa inicializar)
+            periodSeconds: 20         # verifica a cada 20s
+          resources: {{- toYaml .Values.resources.api | nindent 12 }}
+        # Container 2: AWS OTEL Collector (sidecar)
+        # Coleta traces e envia para AWS X-Ray
+        - name: aws-otel-collector
+          image: "{{ .Values.otelCollector.repository }}:{{ .Values.otelCollector.tag }}"
+          imagePullPolicy: {{ .Values.otelCollector.pullPolicy }}
+          command:
+            - "/awscollector"
+            - "--config=/etc/ecs/ecs-xray.yaml"
+          ports:
+            - name: otlp-grpc
+              containerPort: {{ .Values.otelCollectorPort }}
+              protocol: TCP
+            - name: otlp-http
+              containerPort: 4318
+              protocol: TCP
+          env:
+            - name: AWS_REGION
+              value: {{ .Values.env.AWS__Region | quote }}
+          resources: {{- toYaml .Values.resources.otelCollector | nindent 12 }}
