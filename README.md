@@ -55,8 +55,8 @@ Testes unitários feitos em XUnit e NSubstitute
 
 * **CI** (PR/commit): restore, build, testes, análise estática.
 * **Docker**: imagem **ASP.NET 8**
-* **CD** (merge → main): build/push para **ECR**, atualização do **ECS Fargate Service** 
+* **CD** (merge → main): build/push para **ECR**, atualização do **EKS Service** 
 * **Infra AWS**:
-  * **ECS Fargate** + **ALB** (Path `/users/*`)
+  * **EKS** + **ALB** (Path `/users/*`)
   * **RDS** (SQL Server)
   * **CloudWatch Logs** / **X-Ray** / **OTel Collector**
