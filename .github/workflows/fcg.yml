@@ -77,7 +77,7 @@ jobs:
   build-push:
     name: Build and Push Docker Image
     needs: [build, tests]
-    if: github.event_name == 'push'
+    environment: production
     runs-on: ubuntu-latest
     outputs:
       image-tag: ${{ steps.meta.outputs.tags }}
@@ -125,7 +125,6 @@ jobs:
   deploy-eks:
     name: Deploy to EKS
     needs: [build-push, migration]
-    if: github.event_name == 'push'
     runs-on: ubuntu-latest
     environment: production
     
