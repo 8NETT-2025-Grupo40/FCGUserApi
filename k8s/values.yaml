@@ -37,8 +37,8 @@ ingress:
       pathType: Prefix
     - path: /auth
       pathType: Prefix
-    - path: /health
-      pathType: Prefix
+#    - path: /health
+#      pathType: Prefix
   annotations:
     # scheme: internet-facing = ALB público (acessível pela internet)
     alb.ingress.kubernetes.io/scheme: internet-facing
@@ -104,3 +104,5 @@ serviceAccount:
   create: false  # false porque o eksctl cria durante o deploy (workflow)
   name: "fcg-user-api-sa"  # deve corresponder ao nome usado no workflow
   annotations: {}  # eksctl injeta automaticamente eks.amazonaws.com/role-arn
+
+#fullnameOverride: fcg-user-api
